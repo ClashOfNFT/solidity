@@ -72,13 +72,12 @@ contract RON is FT20 {
      * Multiple administrator signatures are required
      */
     function unlockGroupTo(UnlockGroup group, address account, uint256 amount) public onlyAuditor {
-        require(group != UnlockGroup.None);
+        require(group != UnlockGroup.None, "Group none");
         uint256 maxAmount = unlockableOfGroup(group);
         require(amount <= maxAmount, "Amount insufficient");
-        bytes memory bkdata = abi.encodeWithSignature("_unlockTo(address,uint256)", account, amount);
+        bytes memory bkdata = abi.encodeWithSignature("_unlockTo(address,uint256,UnlockGroup)", account, amount);
         string memory descr = string(abi.encodePacked(symbol(), " unlock ", groupLabels[group], " ", Strings.toString(amount / (10 ** decimals())), " to ", addressToString(account)));
         Admin.audit(bkdata, descr);
-        unlockedAmounts[group] += amount;
     }
 
     /**
@@ -87,5 +86,17 @@ contract RON is FT20 {
      */
     function unlockRewardTo(address account, uint256 amount) public onlyAuditor {
         unlockGroupTo(UnlockGroup.Reward, account, amount);
+    }
+
+    /**
+     * @dev unlock token to an address
+     * unlock is mint
+     */
+    function _unlockTo(address account, uint256 amount, UnlockGroup group) public onlyAdmin {
+        uint256 maxAmount = unlockableOfGroup(group);
+        if (amount <= maxAmount) {
+            unlockedAmounts[group] += amount;
+            _mint(account, amount);
+        }
     }
 }

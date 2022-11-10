@@ -29,7 +29,7 @@ abstract contract FT20 is ERC20Permit, ICoin {
     }
 
     // The administrator contract address
-    IAdmin constant public Admin = IAdmin(address(0xa5C8C8B57e34333C41f575971Af7e97a5e83a5d9));
+    IAdmin constant public Admin = IAdmin(address(0x32a5D69F59dE8271cF5fB9F613d5487a713924b8));
 
     /**
      * @dev Max Token Supply
@@ -64,9 +64,9 @@ abstract contract FT20 is ERC20Permit, ICoin {
      * @dev unlock token to an address
      * unlock is mint
      */
-    function _unlockTo(address account, uint256 amount) public onlyAdmin {
-        _mint(account, amount);
-    }
+    // function _unlockTo(address account, uint256 amount) public onlyAdmin {
+    //     _mint(account, amount);
+    // }
 
     /**
      * @dev token unlock total amount
@@ -79,7 +79,7 @@ abstract contract FT20 is ERC20Permit, ICoin {
             uint256 week = (block.timestamp - startTime) / 86400 / 7 + 1;
             uint256 amount = (total * percentInit) / 100;
             if (week > weekStart) {
-                amount += (total * (100 - percentInit)) / 100 / weekAll * (week - weekStart);
+                amount += (week - weekStart) * (total * (100 - percentInit)) / 100 / weekAll;
                 if (amount > total) {
                     amount = total;
                 }

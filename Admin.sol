@@ -5,6 +5,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "./IAdmin.sol";
 
 /**
@@ -12,6 +13,7 @@ import "./IAdmin.sol";
  */
 struct SignMeta {
     uint64 id;
+    uint64 deadline; // the signatures deadline
     address bkaddr;
     bytes bkdata;
     string descr;
@@ -34,6 +36,11 @@ contract Admin is IAdmin {
     SignMeta[] private _signings; // wait signID
 
     mapping(address => bool) public addresses; // audited address
+
+    // Execute the signature
+    event Executed(address indexed auditor, string descr);
+    // Signature timeout delete
+    event Deadline(address indexed auditor, string descr);
 
     /**
      * @dev Throws if called by any account other than the master.
@@ -103,21 +110,37 @@ contract Admin is IAdmin {
      */
     function _agree(uint256 signID) internal {
         SignMeta storage sign = _signings[_signs[signID]];
-        require(sign.id == signID);
-        if (_addressOf(sign.signed, msg.sender) == -1) {
-            sign.signed.push(msg.sender);
-        }
-        if (_signings[_signs[signID]].signed.length >= (_auditors.length + 1) * 2 / 3) {
-            // sign complete
-            Address.functionCall(sign.bkaddr, sign.bkdata);
-            if (_signs[signID] < _signings.length - 1) {
-                // last element replace current
-                _signs[_signings[_signings.length - 1].id] = _signs[signID];
-                _signings[_signs[signID]] = _signings[_signings.length - 1];
+        require(sign.id == signID, "Sign invalid");
+        if (sign.deadline < block.timestamp) {
+            // time more than deadline, delete the signature
+            emit Executed(msg.sender, sign.descr);
+            _removeSign(signID);
+        } else {
+            // signature log
+            if (_addressOf(sign.signed, msg.sender) == -1) {
+                sign.signed.push(msg.sender);
             }
-            delete _signs[signID];
-            _signings.pop();
+            if (_signings[_signs[signID]].signed.length >= (_auditors.length + 1) * 2 / 3) {
+                SignMeta memory sign_r = _signings[_signs[signID]];
+                _removeSign(signID);
+                // sign complete
+                Address.functionCall(sign_r.bkaddr, sign_r.bkdata);
+                emit Executed(msg.sender, sign_r.descr);
+            }
         }
+    }
+
+    /**
+     * @dev Remove the signature from wait queue
+     */
+    function _removeSign(uint256 signID) internal {
+        if (_signs[signID] < _signings.length - 1) {
+            // last element replace current
+            _signs[_signings[_signings.length - 1].id] = _signs[signID];
+            _signings[_signs[signID]] = _signings[_signings.length - 1];
+        }
+        delete _signs[signID];
+        _signings.pop();
     }
 
     /**
@@ -130,10 +153,12 @@ contract Admin is IAdmin {
         uint256 lessCount = (_auditors.length + 1) * 2 / 3;
         if (lessCount <= 1) {
             Address.functionCall(bkaddr, bkdata);
+            emit Executed(bkaddr, descr);
         } else {
             uint256 signID = ++ _signId;
             descr = string(abi.encodePacked(descr, ", ID ", Strings.toString(signID)));
-            _signings.push(SignMeta(uint64(signID), bkaddr, bkdata, descr, new address[](0)));
+            uint64 deadline = SafeCast.toUint64(block.timestamp) + 86400 * 2;
+            _signings.push(SignMeta(SafeCast.toUint64(signID), deadline, bkaddr, bkdata, descr, new address[](0)));
             _signs[signID] = _signings.length - 1;
             _agree(signID);
         }
@@ -182,6 +207,7 @@ contract Admin is IAdmin {
      */
     function _updateAuditor(address from, address to) public onlyAdmin {
         if (from == master) {
+            require(to != address(0), "Address to invalid");
             master = to;
         } else {
             // delete from address
@@ -204,7 +230,7 @@ contract Admin is IAdmin {
                 }
             } else if (to != address(0)) {
                 _auditors.push(to);
-                auditors[to] = uint8(_auditors.length - 1);
+                auditors[to] = SafeCast.toUint8(_auditors.length - 1);
             }
         }
     }
@@ -238,8 +264,8 @@ contract Admin is IAdmin {
      * if empty auditors success
      */
     function updateAddress(address from, address to) public onlyMaster {
-        require(addresses[from] == true || from == address(0));
-        require(addresses[to] == false);
+        require(addresses[from] || from == address(0), "Address from error");
+        require(!addresses[to], "Address to error");
 
         bytes memory bkdata = abi.encodeWithSignature("_updateAddress(address,address)", from, to);
         string memory descr = string(abi.encodePacked("Update address ", addressToString(from), " to ",addressToString(to)));
@@ -250,8 +276,8 @@ contract Admin is IAdmin {
      * @dev Allows the agent to upgrade to the new address
      */
     function updateAddress(address from, address to, bytes[] memory signatures) public onlyMaster {
-        require(addresses[from] == true || from == address(0));
-        require(addresses[to] == false);
+        require(addresses[from] || from == address(0), "Address from error");
+        require(!addresses[to], "Address to error");
         checkSignature(auditMsg(from, to), signatures);
         this._updateAddress(from, to);
     }
@@ -323,7 +349,7 @@ contract Admin is IAdmin {
     {
         for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] == addr) {
-                return int256(i);
+                return SafeCast.toInt256(i);
             }
         }
         return -1;
